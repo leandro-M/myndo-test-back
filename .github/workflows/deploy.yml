@@ -71,7 +71,8 @@ jobs:
             
             # Build and start backend
             echo "Building and starting backend..."
-            docker-compose down
+            docker-compose down --remove-orphans
+            docker rm -f myndo-backend 2>/dev/null || true
             docker-compose up -d --build
             
             # Wait for backend to start
