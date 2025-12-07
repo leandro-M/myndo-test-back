@@ -21,7 +21,9 @@ COPY . .
 RUN npx prisma generate
 
 # Build
-RUN npm run build
+RUN npm run build && \
+    ls -la dist/ && \
+    test -f dist/main.js || (echo "ERROR: dist/main.js not found!" && exit 1)
 
 # Production
 FROM base AS runner
