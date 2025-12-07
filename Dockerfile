@@ -23,7 +23,8 @@ RUN npx prisma generate
 # Build
 RUN npm run build && \
     ls -la dist/ && \
-    test -f dist/main.js || (echo "ERROR: dist/main.js not found!" && exit 1)
+    find dist -name "main.js" && \
+    test -f dist/src/main.js || test -f dist/main.js
 
 # Production
 FROM base AS runner
@@ -44,4 +45,4 @@ USER nestjs
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]
