@@ -9,6 +9,8 @@ Backend NestJS com PostgreSQL (AWS RDS), Prisma ORM e AWS S3 para gerenciamento 
 - Prisma ORM v7
 - AWS S3
 - Docker & Docker Compose
+- Nginx (Reverse Proxy com SSL/TLS)
+- Let's Encrypt (Certificado SSL gratuito)
 - TypeScript
 - Class Validator
 - GitHub Actions (CI/CD)
@@ -19,7 +21,7 @@ Backend NestJS com PostgreSQL (AWS RDS), Prisma ORM e AWS S3 para gerenciamento 
 - Docker & Docker Compose
 - AWS RDS PostgreSQL
 - Conta AWS com bucket S3 configurado
-- GitHub Actions runner configurado no EC2
+- EC2 com portas 80 (HTTP) e 443 (HTTPS) abertas no Security Group
 
 ## 🔧 Instalação Local
 
@@ -39,7 +41,7 @@ Edite o arquivo `.env` com suas configurações:
 ```env
 DATABASE_URL="postgresql://user:password@your-rds-endpoint.rds.amazonaws.com:5432/myndo?schema=public"
 PORT=3001
-FRONTEND_URL=http://localhost:3000
+FRONTEND_URL=https://myndo-test-front.vercel.app
 AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
@@ -69,7 +71,9 @@ docker-compose down
 
 ### Produção (EC2 com RDS)
 
-O backend roda em Docker no EC2 e conecta ao RDS PostgreSQL gerenciado pela AWS.
+O backend roda em Docker no EC2 e conecta ao RDS PostgreSQL gerenciado pela AWS. O Nginx atua como reverse proxy com SSL/TLS (Let's Encrypt).
+
+**URL de produção:** https://ec2-44-222-69-159.compute-1.amazonaws.com
 
 ```bash
 # Deploy automático via GitHub Actions
@@ -170,19 +174,26 @@ Resposta:
 ### Arquitetura
 
 - **EC2 (t3.medium)**: Hospeda o backend em Docker
+- **Nginx**: Reverse proxy com SSL/TLS (porta 80/443 → 3001)
+- **Let's Encrypt**: Certificado SSL gratuito e auto-renovável
 - **RDS PostgreSQL**: Database gerenciado pela AWS
 - **S3**: Storage de arquivos
-- **GitHub Actions**: CI/CD automático com self-hosted runner
+- **GitHub Actions**: CI/CD automático via SSH
+- **Vercel**: Frontend em produção
 
 ### Fluxo de Deploy
 
 1. Push para branch `main`
-2. GitHub Actions detecta mudanças
-3. Self-hosted runner no EC2 executa workflow
-4. Build da imagem Docker
-5. Executa migrations no RDS
-6. Deploy do container
-7. Health check automático
+2. GitHub Actions runner (ubuntu-latest) inicia
+3. Conecta via SSH na EC2
+4. Configura Nginx + SSL (se primeira vez)
+5. Clona/atualiza código do repositório
+6. Build da imagem Docker
+7. Remove containers antigos
+8. Deploy do novo container
+9. Executa migrations no RDS
+10. Health check automático
+11. Backend disponível em HTTPS
 
 ### Configuração do CI/CD
 
@@ -206,40 +217,44 @@ Configurar Security Group do RDS:
 
 No repositório do GitHub, adicione os seguintes secrets:
 
-| Secret | Valor |
-|--------|-------|
-| `DATABASE_URL` | `postgresql://user:pass@rds-endpoint:5432/myndo?schema=public` |
-| `FRONTEND_URL` | `http://ec2-public-dns.amazonaws.com:3000` |
-| `AWS_REGION` | `us-east-1` |
-| `AWS_ACCESS_KEY_ID` | Sua AWS Access Key |
-| `AWS_SECRET_ACCESS_KEY` | Sua AWS Secret Key |
-| `AWS_S3_BUCKET_NAME` | Nome do bucket S3 |
+| Secret | Valor | Descrição |
+|--------|-------|-----------|
+| `EC2_SSH_KEY` | Conteúdo da chave `.pem` | Chave privada para SSH |
+| `EC2_HOST` | `ec2-44-222-69-159.compute-1.amazonaws.com` | Hostname da EC2 |
+| `EC2_USER` | `ubuntu` | Usuário SSH |
+| `GH_PAT` | Personal Access Token | Token para clonar repo privado |
+| `DATABASE_URL` | `postgresql://user:pass@rds-endpoint:5432/myndo?schema=public` | Connection string do RDS |
+| `FRONTEND_URL` | `https://myndo-test-front.vercel.app` | URL do frontend |
+| `AWS_REGION` | `us-east-1` | Região AWS |
+| `AWS_ACCESS_KEY_ID` | Sua AWS Access Key | Credencial AWS |
+| `AWS_SECRET_ACCESS_KEY` | Sua AWS Secret Key | Credencial AWS |
+| `AWS_S3_BUCKET_NAME` | Nome do bucket S3 | Bucket para uploads |
 
-#### 3. Setup GitHub Actions Runner no EC2
+**Como criar o Personal Access Token (GH_PAT):**
+1. GitHub.com → Settings (pessoal) → Developer settings
+2. Personal access tokens → Tokens (classic) → Generate new token
+3. Marque: `repo` (Full control of private repositories)
+4. Copie o token (começa com `ghp_...`)
 
-```bash
-# Conectar ao EC2
-ssh -i your-key.pem ubuntu@your-ec2-ip
+#### 3. Configurar Security Group da EC2
 
-# Instalar Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker ubuntu
+No AWS Console:
 
-# Instalar Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+1. **EC2 → Security Groups**
+2. Selecione o Security Group da sua instância
+3. **Inbound rules** → Edit inbound rules → Add rule
 
-# Configurar GitHub Actions Runner
-# 1. Vá em: GitHub repo → Settings → Actions → Runners → New self-hosted runner
-# 2. Siga as instruções para Linux
-# 3. Instale como serviço:
+| Type | Protocol | Port | Source | Descrição |
+|------|----------|------|--------|-----------|
+| HTTP | TCP | 80 | 0.0.0.0/0 | Nginx (redirect para HTTPS) |
+| HTTPS | TCP | 443 | 0.0.0.0/0 | Nginx SSL |
+| SSH | TCP | 22 | Seu IP | Acesso SSH |
+| Custom TCP | TCP | 3001 | 172.31.0.0/16 | Backend (interno VPC) |
 
-cd ~/actions-runner
-sudo ./svc.sh install ubuntu
-sudo ./svc.sh start
-sudo ./svc.sh status
-```
+**Importante:** O Nginx configurado automaticamente:
+- Recebe requisições HTTPS na porta 443
+- Faz proxy para o backend na porta 3001 (localhost)
+- Certificado SSL renovado automaticamente pelo Let's Encrypt
 
 #### 4. Verificar Deploy
 
@@ -252,8 +267,15 @@ ssh -i your-key.pem ubuntu@your-ec2-ip
 docker ps
 docker logs myndo-backend
 
-# Testar API
-curl http://your-ec2-ip:3001/cards
+# Verificar Nginx
+sudo systemctl status nginx
+sudo nginx -t
+
+# Ver certificado SSL
+sudo certbot certificates
+
+# Testar API (HTTPS)
+curl https://ec2-44-222-69-159.compute-1.amazonaws.com/cards
 ```
 
 ## 📦 Estrutura de Arquivos
@@ -281,11 +303,14 @@ myndo-test-backend/
 
 - ✅ Nunca commite o arquivo `.env`
 - ✅ Use GitHub Secrets para variáveis sensíveis
+- ✅ HTTPS em produção com certificado Let's Encrypt
+- ✅ Nginx como reverse proxy (backend não exposto)
+- ✅ Certificado SSL renovado automaticamente
 - ✅ RDS em VPC privada (não acessível publicamente)
 - ✅ Security Groups configurados para mínimo privilégio
 - ✅ AWS IAM roles com least privilege
-- ✅ HTTPS em produção (configure Load Balancer)
 - ✅ Backups automáticos do RDS (7 dias retenção)
+- ✅ CORS configurado apenas para frontend autorizado
 
 ## 🧪 Testes
 
@@ -347,6 +372,44 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
+### Erro CORS
+
+```bash
+# Verificar se FRONTEND_URL está correto no .env
+docker exec myndo-backend env | grep FRONTEND_URL
+
+# Deve ser: https://myndo-test-front.vercel.app
+```
+
+### Certificado SSL expirado
+
+```bash
+# Renovar manualmente
+sudo certbot renew
+
+# Testar renovação
+sudo certbot renew --dry-run
+
+# Ver status dos certificados
+sudo certbot certificates
+```
+
+### Nginx não funciona
+
+```bash
+# Verificar status
+sudo systemctl status nginx
+
+# Ver logs
+sudo tail -f /var/log/nginx/error.log
+
+# Testar configuração
+sudo nginx -t
+
+# Reiniciar
+sudo systemctl restart nginx
+```
+
 ## 📊 Monitoramento
 
 ### Logs do Backend
@@ -354,14 +417,32 @@ npx prisma migrate status
 docker logs -f myndo-backend
 ```
 
-### Logs do Runner
+### Logs do Nginx
 ```bash
-sudo journalctl -u actions.runner.*.service -f
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+### Logs do Deploy (GitHub Actions)
+```
+GitHub repo → Actions → Workflow runs
 ```
 
 ### Métricas do RDS
 - AWS Console → RDS → Databases → myndo-test
 - Veja: CPU, Connections, Storage, IOPS
+
+### Status dos Serviços
+```bash
+# Backend container
+docker ps | grep myndo-backend
+
+# Nginx
+sudo systemctl status nginx
+
+# Certificado SSL
+sudo certbot certificates
+```
 
 ## 💰 Custos AWS (Estimativa)
 
