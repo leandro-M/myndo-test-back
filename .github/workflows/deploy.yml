@@ -53,7 +53,7 @@ jobs:
               git pull origin main
             else
               echo "Cloning repository..."
-              git clone https://${GITHUB_TOKEN}@github.com/leandro-M/myndo-test-backend.git .
+              git clone https://${GITHUB_TOKEN}@github.com/leandro-M/myndo-test-back.git .
             fi
             
             # Create or update .env file
