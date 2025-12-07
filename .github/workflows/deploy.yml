@@ -75,7 +75,7 @@ jobs:
               # Get SSL certificate (only on first run)
               if [ ! -d /etc/letsencrypt/live/ec2-44-222-69-159.compute-1.amazonaws.com ]; then
                 echo "Obtaining SSL certificate..."
-                sudo certbot --nginx -d ec2-44-222-69-159.compute-1.amazonaws.com --non-interactive --agree-tos --email leandro.myndo@example.com --redirect
+                sudo certbot --nginx -d ec2-44-222-69-159.compute-1.amazonaws.com --non-interactive --agree-tos --register-unsafely-without-email --redirect
               fi
             fi
             
