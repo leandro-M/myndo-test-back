@@ -1,13 +1,11 @@
 # Backend
 FROM node:20-alpine AS base
 
+
 # Dependencies
 FROM base AS deps
 WORKDIR /app
 
-ARG DATABASE_URL
-
-ENV DATABASE_URL=$DATABASE_URL
 
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -17,6 +15,10 @@ RUN npm ci
 # Builder
 FROM base AS builder
 WORKDIR /app
+
+ARG DATABASE_URL
+
+ENV DATABASE_URL=$DATABASE_URL
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -33,6 +35,10 @@ RUN npm run build && \
 # Production
 FROM base AS runner
 WORKDIR /app
+
+ARG DATABASE_URL
+
+ENV DATABASE_URL=$DATABASE_URL
 
 ENV NODE_ENV=production
 
